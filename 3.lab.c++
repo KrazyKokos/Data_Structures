@@ -3,176 +3,332 @@
 #include <iostream>
 #include <queue>
 #include <vector>
-#include <utility>
-#include <chrono>
+#include <memory>
 #include <cstring>
-#include <algorithm>
+#include <stdexcept>
+#include <chrono>
+#include <random>
+#include <functional>
 
 using namespace std;
 using namespace std::chrono;
 
-const int MAX_N = 100;
-const int MAX_M = 100;
+constexpr int WALL_PROBABILITY = 25;
 
-int maze_array[MAX_N][MAX_M];
-bool visited_global[MAX_N][MAX_M];
+class MazeGenerator {
+public:
+    static void generateMaze(vector<vector<int>>& maze) {
+        random_device rd;
+        mt19937 gen(rd());
+        uniform_int_distribution<> dis(0, 99);
 
-// Решение задачи a (фиксированные входы/выходы)
-bool solve_part_a(int N, int M, const vector<pair<int, int>>& entries, const vector<pair<int, int>>& exits) {
-    if (entries.size() != exits.size()) return false;
+        for (auto& row : maze) {
+            for (auto& cell : row) {
+                cell = (dis(gen) < WALL_PROBABILITY) ? 1 : 0;
+            }
+        }
+        
+        // Ensure start and end are accessible
+        maze[0][0] = 0;
+        maze.back().back() = 0;
+    }
+};
 
-    bool temp_visited[MAX_N][MAX_M];
-    memcpy(temp_visited, visited_global, sizeof(visited_global));
+class IMazeSolver {
+public:
+    virtual ~IMazeSolver() = default;
+    virtual void setMaze(const vector<vector<int>>& input) = 0;
+    virtual bool solve(pair<int, int> start, pair<int, int> end) = 0;
+    virtual string getName() const = 0;
+};
 
-    for (size_t i = 0; i < entries.size(); ++i) {
-        bool local_visited[MAX_N][MAX_M] = {false};
+class ArrayMazeSolver : public IMazeSolver {
+private:
+    static const int MAX_SIZE = 1000;
+    int maze[MAX_SIZE][MAX_SIZE];
+    bool visited[MAX_SIZE][MAX_SIZE];
+    int N, M;
+
+    void validateCoordinates(int x, int y) const {
+        if (x < 0 || x >= N || y < 0 || y >= M) {
+            throw out_of_range("Coordinates out of maze bounds");
+        }
+    }
+
+public:
+    ArrayMazeSolver(int n, int m) : N(n), M(m) {
+        if (n <= 0 || m <= 0 || n > MAX_SIZE || m > MAX_SIZE) {
+            throw invalid_argument("Invalid maze dimensions");
+        }
+        memset(maze, 0, sizeof(maze));
+        memset(visited, false, sizeof(visited));
+    }
+
+    void setMaze(const vector<vector<int>>& input) override {
+        if (input.size() != static_cast<size_t>(N) || input[0].size() != static_cast<size_t>(M)) {
+            throw invalid_argument("Input maze dimensions don't match solver dimensions");
+        }
+        for (int i = 0; i < N; ++i) {
+            for (int j = 0; j < M; ++j) {
+                maze[i][j] = input[i][j];
+            }
+        }
+    }
+
+    bool solve(pair<int, int> start, pair<int, int> end) override {
+        validateCoordinates(start.first, start.second);
+        validateCoordinates(end.first, end.second);
+
+        if (maze[start.first][start.second] == 1 || maze[end.first][end.second] == 1) {
+            return false;
+        }
+
+        bool temp_visited[MAX_SIZE][MAX_SIZE];
+        memcpy(temp_visited, visited, sizeof(visited));
+
         queue<pair<int, int>> q;
-        q.push(entries[i]);
-        local_visited[entries[i].first][entries[i].second] = true;
+        q.push(start);
+        visited[start.first][start.second] = true;
 
-        const int dx[] = {-1, 1, 0, 0};
-        const int dy[] = {0, 0, -1, 1};
+        constexpr int dx[] = {-1, 1, 0, 0};
+        constexpr int dy[] = {0, 0, -1, 1};
 
-        bool found = false;
-        while (!q.empty() && !found) {
+        while (!q.empty()) {
             auto [x, y] = q.front();
             q.pop();
 
-            if (x == exits[i].first && y == exits[i].second) {
-                found = true;
-                for (int i = 0; i < N; ++i) {
-                    for (int j = 0; j < M; ++j) {
-                        if (local_visited[i][j]) visited_global[i][j] = true;
-                    }
-                }
-                break;
+            if (x == end.first && y == end.second) {
+                memcpy(visited, temp_visited, sizeof(visited));
+                return true;
             }
 
-            for (int dir = 0; dir < 4; ++dir) {
-                int nx = x + dx[dir];
-                int ny = y + dy[dir];
+            for (int i = 0; i < 4; ++i) {
+                int nx = x + dx[i];
+                int ny = y + dy[i];
 
                 if (nx >= 0 && nx < N && ny >= 0 && ny < M && 
-                    maze_array[nx][ny] == 0 && !local_visited[nx][ny] && !visited_global[nx][ny]) {
-                    local_visited[nx][ny] = true;
+                    maze[nx][ny] == 0 && !visited[nx][ny]) {
+                    visited[nx][ny] = true;
                     q.push({nx, ny});
                 }
             }
         }
-        if (!found) {
-            memcpy(visited_global, temp_visited, sizeof(visited_global));
-            return false;
+
+        memcpy(visited, temp_visited, sizeof(visited));
+        return false;
+    }
+
+    string getName() const override { return "Array implementation"; }
+};
+
+class LinkedListMazeSolver : public IMazeSolver {
+private:
+    struct Node {
+        int x, y;
+        shared_ptr<Node> next;
+        Node(int x, int y) : x(x), y(y), next(nullptr) {}
+    };
+
+    vector<vector<shared_ptr<Node>>> grid;
+    vector<vector<bool>> visited;
+    int N, M;
+
+    void validateCoordinates(int x, int y) const {
+        if (x < 0 || x >= N || y < 0 || y >= M) {
+            throw out_of_range("Coordinates out of maze bounds");
         }
     }
-    return true;
-}
 
-// Решение задачи b (любые выходы)
-bool solve_part_b(int N, int M, const vector<pair<int, int>>& entries, const vector<pair<int, int>>& exits) {
-    bool temp_visited[MAX_N][MAX_M];
-    memcpy(temp_visited, visited_global, sizeof(visited_global));
+public:
+    LinkedListMazeSolver(int n, int m) : N(n), M(m), 
+        grid(n, vector<shared_ptr<Node>>(m, nullptr)), 
+        visited(n, vector<bool>(m, false)) {
+        if (n <= 0 || m <= 0) {
+            throw invalid_argument("Invalid maze dimensions");
+        }
+    }
 
-    for (const auto& entry : entries) {
-        bool local_visited[MAX_N][MAX_M] = {false};
-        queue<pair<pair<int, int>, vector<pair<int, int>>>> q;
-        q.push({entry, {}});
-        local_visited[entry.first][entry.second] = true;
+    void setMaze(const vector<vector<int>>& input) override {
+        if (input.size() != static_cast<size_t>(N) || input[0].size() != static_cast<size_t>(M)) {
+            throw invalid_argument("Input maze dimensions don't match solver dimensions");
+        }
+        for (int i = 0; i < N; ++i) {
+            for (int j = 0; j < M; ++j) {
+                if (input[i][j] == 0) {
+                    grid[i][j] = make_shared<Node>(i, j);
+                } else {
+                    grid[i][j] = nullptr;
+                }
+            }
+        }
+    }
 
-        const int dx[] = {-1, 1, 0, 0};
-        const int dy[] = {0, 0, -1, 1};
+    bool solve(pair<int, int> start, pair<int, int> end) override {
+        validateCoordinates(start.first, start.second);
+        validateCoordinates(end.first, end.second);
 
-        bool found = false;
-        while (!q.empty() && !found) {
-            auto [current, path] = q.front();
-            auto [x, y] = current;
+        if (grid[start.first][start.second] == nullptr || grid[end.first][end.second] == nullptr) {
+            return false;
+        }
+
+        auto temp_visited = visited;
+
+        queue<pair<int, int>> q;
+        q.push(start);
+        visited[start.first][start.second] = true;
+
+        constexpr int dx[] = {-1, 1, 0, 0};
+        constexpr int dy[] = {0, 0, -1, 1};
+
+        while (!q.empty()) {
+            auto [x, y] = q.front();
             q.pop();
 
-            if (any_of(exits.begin(), exits.end(), [x, y](const pair<int, int>& exit) {
-                return x == exit.first && y == exit.second;
-            })) {
-                found = true;
-                for (const auto& p : path) {
-                    visited_global[p.first][p.second] = true;
-                }
-                visited_global[x][y] = true;
-                break;
+            if (x == end.first && y == end.second) {
+                visited = temp_visited;
+                return true;
             }
 
-            for (int dir = 0; dir < 4; ++dir) {
-                int nx = x + dx[dir];
-                int ny = y + dy[dir];
+            for (int i = 0; i < 4; ++i) {
+                int nx = x + dx[i];
+                int ny = y + dy[i];
 
                 if (nx >= 0 && nx < N && ny >= 0 && ny < M && 
-                    maze_array[nx][ny] == 0 && !local_visited[nx][ny] && !visited_global[nx][ny]) {
-                    local_visited[nx][ny] = true;
-                    vector<pair<int, int>> new_path = path;
-                    new_path.emplace_back(x, y);
-                    q.push({{nx, ny}, new_path});
+                    grid[nx][ny] != nullptr && !visited[nx][ny]) {
+                    visited[nx][ny] = true;
+                    q.push({nx, ny});
                 }
             }
         }
-        if (!found) {
-            memcpy(visited_global, temp_visited, sizeof(visited_global));
+
+        visited = temp_visited;
+        return false;
+    }
+
+    string getName() const override { return "Linked list implementation"; }
+};
+
+class STLMazeSolver : public IMazeSolver {
+private:
+    vector<vector<int>> maze;
+    vector<vector<bool>> visited;
+    int N, M;
+
+    void validateCoordinates(int x, int y) const {
+        if (x < 0 || x >= N || y < 0 || y >= M) {
+            throw out_of_range("Coordinates out of maze bounds");
+        }
+    }
+
+public:
+    STLMazeSolver(int n, int m) : N(n), M(m), 
+        maze(n, vector<int>(m, 0)), 
+        visited(n, vector<bool>(m, false)) {
+        if (n <= 0 || m <= 0) {
+            throw invalid_argument("Invalid maze dimensions");
+        }
+    }
+
+    void setMaze(const vector<vector<int>>& input) override {
+        if (input.size() != static_cast<size_t>(N) || input[0].size() != static_cast<size_t>(M)) {
+            throw invalid_argument("Input maze dimensions don't match solver dimensions");
+        }
+        maze = input;
+    }
+
+    bool solve(pair<int, int> start, pair<int, int> end) override {
+        validateCoordinates(start.first, start.second);
+        validateCoordinates(end.first, end.second);
+
+        if (maze[start.first][start.second] == 1 || maze[end.first][end.second] == 1) {
             return false;
         }
+
+        auto temp_visited = visited;
+
+        queue<pair<int, int>> q;
+        q.push(start);
+        visited[start.first][start.second] = true;
+
+        constexpr int dx[] = {-1, 1, 0, 0};
+        constexpr int dy[] = {0, 0, -1, 1};
+
+        while (!q.empty()) {
+            auto [x, y] = q.front();
+            q.pop();
+
+            if (x == end.first && y == end.second) {
+                visited = temp_visited;
+                return true;
+            }
+
+            for (int i = 0; i < 4; ++i) {
+                int nx = x + dx[i];
+                int ny = y + dy[i];
+
+                if (nx >= 0 && nx < N && ny >= 0 && ny < M && 
+                    maze[nx][ny] == 0 && !visited[nx][ny]) {
+                    visited[nx][ny] = true;
+                    q.push({nx, ny});
+                }
+            }
+        }
+
+        visited = temp_visited;
+        return false;
     }
-    return true;
-}
 
-int main() {
-    int N, M;
-    cout << "Введите размеры лабиринта (N M): ";
-    cin >> N >> M;
+    string getName() const override { return "STL vector implementation"; }
+};
 
-    if (N <= 0 || M <= 0 || N > MAX_N || M > MAX_M) {
-        cerr << "Некорректные размеры лабиринта!\n";
-        return 1;
-    }
+class Benchmark {
+public:
+    static void run(int N, int M) {
+        vector<vector<int>> maze(N, vector<int>(M));
+        MazeGenerator::generateMaze(maze);
+        pair<int, int> start = {0, 0};
+        pair<int, int> end = {N-1, M-1};
 
-    vector<vector<int>> maze(N, vector<int>(M));
-    cout << "Введите лабиринт (0 - проход, 1 - стена):\n";
-    for (int i = 0; i < N; ++i) {
-        for (int j = 0; j < M; ++j) {
-            cin >> maze[i][j];
-            maze_array[i][j] = maze[i][j];
+        cout << "Benchmark results for " << N << "x" << M << " maze:\n";
+
+        vector<unique_ptr<IMazeSolver>> solvers;
+        solvers.push_back(make_unique<ArrayMazeSolver>(N, M));
+        solvers.push_back(make_unique<LinkedListMazeSolver>(N, M));
+        solvers.push_back(make_unique<STLMazeSolver>(N, M));
+
+        for (auto& solver : solvers) {
+            try {
+                solver->setMaze(maze);
+                
+                auto start_time = high_resolution_clock::now();
+                bool result = solver->solve(start, end);
+                auto duration = duration_cast<microseconds>(high_resolution_clock::now() - start_time);
+                
+                cout << solver->getName() << ": " << duration.count() << " μs, "
+                     << (result ? "Path found" : "No path") << endl;
+            } catch (const exception& e) {
+                cerr << solver->getName() << " error: " << e.what() << endl;
+            }
         }
     }
+};
 
-  
-    vector<pair<int, int>> entries, exits;
-    for (int j = 0; j < M; ++j) {
-        if (maze[0][j] == 0) entries.emplace_back(0, j);
-        if (maze[N-1][j] == 0) exits.emplace_back(N-1, j);
-    }
-    for (int i = 1; i < N-1; ++i) {
-        if (maze[i][0] == 0) entries.emplace_back(i, 0);
-        if (maze[i][M-1] == 0) exits.emplace_back(i, M-1);
-    }
+int main() {
+    try {
+        int N, M;
+        cout << "Enter maze dimensions (N M): ";
+        cin >> N >> M;
 
-    if (entries.empty() || exits.empty()) {
-        cout << "Нет входов или выходов в лабиринте!\n";
+        if (N <= 0 || M <= 0) {
+            throw invalid_argument("Dimensions must be positive integers");
+        }
+
+        Benchmark::run(N, M);
+
+    } catch (const exception& e) {
+        cerr << "Error: " << e.what() << endl;
         return 1;
     }
-
-    // Задача a
-    memset(visited_global, false, sizeof(visited_global));
-    auto start_a = high_resolution_clock::now();
-    bool result_a = solve_part_a(N, M, entries, exits);
-    auto stop_a = high_resolution_clock::now();
-    auto duration_a = duration_cast<microseconds>(stop_a - start_a);
-
-    // Задача b
-    memset(visited_global, false, sizeof(visited_global));
-    auto start_b = high_resolution_clock::now();
-    bool result_b = solve_part_b(N, M, entries, exits);
-    auto stop_b = high_resolution_clock::now();
-    auto duration_b = duration_cast<microseconds>(stop_b - start_b);
-
-    cout << "\nРезультаты:\n";
-    cout << "Задача a (фиксированные входы/выходы): " << (result_a ? "Yes" : "No") 
-         << ", время: " << duration_a.count() << " мкс\n";
-    cout << "Задача b (любые выходы): " << (result_b ? "Yes" : "No") 
-         << ", время: " << duration_b.count() << " мкс\n";
 
     return 0;
 }
