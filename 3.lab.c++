@@ -28,7 +28,6 @@ public:
             }
         }
         
-        // Ensure start and end are accessible
         maze[0][0] = 0;
         maze.back().back() = 0;
     }
