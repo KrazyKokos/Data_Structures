@@ -1,333 +1,156 @@
 //Shabarov Vladimir 090304-RPIa-024
 
 #include <iostream>
-#include <queue>
-#include <vector>
-#include <memory>
-#include <cstring>
-#include <stdexcept>
+#include <complex>
 #include <chrono>
-#include <random>
-#include <functional>
+#include <cstdlib>
+#include <algorithm>
+#include <cblas.h>
 
 using namespace std;
 using namespace std::chrono;
 
-constexpr int WALL_PROBABILITY = 25;
+const int SIZE = 2048;
+const int BLOCK_SIZE = 64;
+using Complex = complex<double>;
 
-class MazeGenerator {
-public:
-    static void generateMaze(vector<vector<int>>& maze) {
-        random_device rd;
-        mt19937 gen(rd());
-        uniform_int_distribution<> dis(0, 99);
-
-        for (auto& row : maze) {
-            for (auto& cell : row) {
-                cell = (dis(gen) < WALL_PROBABILITY) ? 1 : 0;
-            }
-        }
-        
-        maze[0][0] = 0;
-        maze.back().back() = 0;
+void generate_matrices(Complex* A, Complex* B) {
+    srand(42);
+    for (int i = 0; i < SIZE * SIZE; ++i) {
+        A[i] = Complex((rand() % 100) - 50.0, (rand() % 100) - 50.0);
+        B[i] = Complex((rand() % 100) - 50.0, (rand() % 100) - 50.0);
     }
-};
+}
 
-class IMazeSolver {
-public:
-    virtual ~IMazeSolver() = default;
-    virtual void setMaze(const vector<vector<int>>& input) = 0;
-    virtual bool solve(pair<int, int> start, pair<int, int> end) = 0;
-    virtual string getName() const = 0;
-};
-
-class ArrayMazeSolver : public IMazeSolver {
-private:
-    static const int MAX_SIZE = 1000;
-    int maze[MAX_SIZE][MAX_SIZE];
-    bool visited[MAX_SIZE][MAX_SIZE];
-    int N, M;
-
-    void validateCoordinates(int x, int y) const {
-        if (x < 0 || x >= N || y < 0 || y >= M) {
-            throw out_of_range("Coordinates out of maze bounds");
-        }
-    }
-
-public:
-    ArrayMazeSolver(int n, int m) : N(n), M(m) {
-        if (n <= 0 || m <= 0 || n > MAX_SIZE || m > MAX_SIZE) {
-            throw invalid_argument("Invalid maze dimensions");
-        }
-        memset(maze, 0, sizeof(maze));
-        memset(visited, false, sizeof(visited));
-    }
-
-    void setMaze(const vector<vector<int>>& input) override {
-        if (input.size() != static_cast<size_t>(N) || input[0].size() != static_cast<size_t>(M)) {
-            throw invalid_argument("Input maze dimensions don't match solver dimensions");
-        }
-        for (int i = 0; i < N; ++i) {
-            for (int j = 0; j < M; ++j) {
-                maze[i][j] = input[i][j];
-            }
-        }
-    }
-
-    bool solve(pair<int, int> start, pair<int, int> end) override {
-        validateCoordinates(start.first, start.second);
-        validateCoordinates(end.first, end.second);
-
-        if (maze[start.first][start.second] == 1 || maze[end.first][end.second] == 1) {
+// Проверка матриц на равенство 
+bool are_matrices_equal(const Complex* A, const Complex* B, double epsilon = 1e-6) {
+    for (int i = 0; i < SIZE * SIZE; ++i) {
+        if (abs(A[i].real() - B[i].real()) > epsilon || 
+            abs(A[i].imag() - B[i].imag()) > epsilon) {
             return false;
         }
-
-        bool temp_visited[MAX_SIZE][MAX_SIZE];
-        memcpy(temp_visited, visited, sizeof(visited));
-
-        queue<pair<int, int>> q;
-        q.push(start);
-        visited[start.first][start.second] = true;
-
-        constexpr int dx[] = {-1, 1, 0, 0};
-        constexpr int dy[] = {0, 0, -1, 1};
-
-        while (!q.empty()) {
-            auto [x, y] = q.front();
-            q.pop();
-
-            if (x == end.first && y == end.second) {
-                memcpy(visited, temp_visited, sizeof(visited));
-                return true;
-            }
-
-            for (int i = 0; i < 4; ++i) {
-                int nx = x + dx[i];
-                int ny = y + dy[i];
-
-                if (nx >= 0 && nx < N && ny >= 0 && ny < M && 
-                    maze[nx][ny] == 0 && !visited[nx][ny]) {
-                    visited[nx][ny] = true;
-                    q.push({nx, ny});
-                }
-            }
-        }
-
-        memcpy(visited, temp_visited, sizeof(visited));
-        return false;
     }
+    return true;
+}
 
-    string getName() const override { return "Array implementation"; }
-};
-
-class LinkedListMazeSolver : public IMazeSolver {
-private:
-    struct Node {
-        int x, y;
-        shared_ptr<Node> next;
-        Node(int x, int y) : x(x), y(y), next(nullptr) {}
-    };
-
-    vector<vector<shared_ptr<Node>>> grid;
-    vector<vector<bool>> visited;
-    int N, M;
-
-    void validateCoordinates(int x, int y) const {
-        if (x < 0 || x >= N || y < 0 || y >= M) {
-            throw out_of_range("Coordinates out of maze bounds");
-        }
-    }
-
-public:
-    LinkedListMazeSolver(int n, int m) : N(n), M(m), 
-        grid(n, vector<shared_ptr<Node>>(m, nullptr)), 
-        visited(n, vector<bool>(m, false)) {
-        if (n <= 0 || m <= 0) {
-            throw invalid_argument("Invalid maze dimensions");
-        }
-    }
-
-    void setMaze(const vector<vector<int>>& input) override {
-        if (input.size() != static_cast<size_t>(N) || input[0].size() != static_cast<size_t>(M)) {
-            throw invalid_argument("Input maze dimensions don't match solver dimensions");
-        }
-        for (int i = 0; i < N; ++i) {
-            for (int j = 0; j < M; ++j) {
-                if (input[i][j] == 0) {
-                    grid[i][j] = make_shared<Node>(i, j);
-                } else {
-                    grid[i][j] = nullptr;
-                }
+// Простое матричное умножение
+void simple_matrix_multiply(const Complex* A, const Complex* B, Complex* C) {
+    for (int i = 0; i < SIZE; ++i) {
+        for (int k = 0; k < SIZE; ++k) {
+            Complex temp = A[i * SIZE + k];
+            for (int j = 0; j < SIZE; ++j) {
+                C[i * SIZE + j] += temp * B[k * SIZE + j];
             }
         }
     }
+}
 
-    bool solve(pair<int, int> start, pair<int, int> end) override {
-        validateCoordinates(start.first, start.second);
-        validateCoordinates(end.first, end.second);
+// Умножение с использованием OpenBLAS
+void openblas_matrix_multiply(const Complex* A, const Complex* B, Complex* C) {
+    const Complex one(1.0, 0.0);
+    const Complex zero(0.0, 0.0);
+    cblas_zgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                SIZE, SIZE, SIZE,
+                &one,
+                A, SIZE,
+                B, SIZE,
+                &zero,
+                C, SIZE);
+}
 
-        if (grid[start.first][start.second] == nullptr || grid[end.first][end.second] == nullptr) {
-            return false;
-        }
-
-        auto temp_visited = visited;
-
-        queue<pair<int, int>> q;
-        q.push(start);
-        visited[start.first][start.second] = true;
-
-        constexpr int dx[] = {-1, 1, 0, 0};
-        constexpr int dy[] = {0, 0, -1, 1};
-
-        while (!q.empty()) {
-            auto [x, y] = q.front();
-            q.pop();
-
-            if (x == end.first && y == end.second) {
-                visited = temp_visited;
-                return true;
-            }
-
-            for (int i = 0; i < 4; ++i) {
-                int nx = x + dx[i];
-                int ny = y + dy[i];
-
-                if (nx >= 0 && nx < N && ny >= 0 && ny < M && 
-                    grid[nx][ny] != nullptr && !visited[nx][ny]) {
-                    visited[nx][ny] = true;
-                    q.push({nx, ny});
-                }
-            }
-        }
-
-        visited = temp_visited;
-        return false;
-    }
-
-    string getName() const override { return "Linked list implementation"; }
-};
-
-class STLMazeSolver : public IMazeSolver {
-private:
-    vector<vector<int>> maze;
-    vector<vector<bool>> visited;
-    int N, M;
-
-    void validateCoordinates(int x, int y) const {
-        if (x < 0 || x >= N || y < 0 || y >= M) {
-            throw out_of_range("Coordinates out of maze bounds");
+void transpose_matrix(const Complex* A, Complex* AT) {
+    for (int i = 0; i < SIZE; ++i) {
+        for (int j = 0; j < SIZE; ++j) {
+            AT[j * SIZE + i] = A[i * SIZE + j];
         }
     }
+}
 
-public:
-    STLMazeSolver(int n, int m) : N(n), M(m), 
-        maze(n, vector<int>(m, 0)), 
-        visited(n, vector<bool>(m, false)) {
-        if (n <= 0 || m <= 0) {
-            throw invalid_argument("Invalid maze dimensions");
-        }
-    }
-
-    void setMaze(const vector<vector<int>>& input) override {
-        if (input.size() != static_cast<size_t>(N) || input[0].size() != static_cast<size_t>(M)) {
-            throw invalid_argument("Input maze dimensions don't match solver dimensions");
-        }
-        maze = input;
-    }
-
-    bool solve(pair<int, int> start, pair<int, int> end) override {
-        validateCoordinates(start.first, start.second);
-        validateCoordinates(end.first, end.second);
-
-        if (maze[start.first][start.second] == 1 || maze[end.first][end.second] == 1) {
-            return false;
-        }
-
-        auto temp_visited = visited;
-
-        queue<pair<int, int>> q;
-        q.push(start);
-        visited[start.first][start.second] = true;
-
-        constexpr int dx[] = {-1, 1, 0, 0};
-        constexpr int dy[] = {0, 0, -1, 1};
-
-        while (!q.empty()) {
-            auto [x, y] = q.front();
-            q.pop();
-
-            if (x == end.first && y == end.second) {
-                visited = temp_visited;
-                return true;
-            }
-
-            for (int i = 0; i < 4; ++i) {
-                int nx = x + dx[i];
-                int ny = y + dy[i];
-
-                if (nx >= 0 && nx < N && ny >= 0 && ny < M && 
-                    maze[nx][ny] == 0 && !visited[nx][ny]) {
-                    visited[nx][ny] = true;
-                    q.push({nx, ny});
-                }
-            }
-        }
-
-        visited = temp_visited;
-        return false;
-    }
-
-    string getName() const override { return "STL vector implementation"; }
-};
-
-class Benchmark {
-public:
-    static void run(int N, int M) {
-        vector<vector<int>> maze(N, vector<int>(M));
-        MazeGenerator::generateMaze(maze);
-        pair<int, int> start = {0, 0};
-        pair<int, int> end = {N-1, M-1};
-
-        cout << "Benchmark results for " << N << "x" << M << " maze:\n";
-
-        vector<unique_ptr<IMazeSolver>> solvers;
-        solvers.push_back(make_unique<ArrayMazeSolver>(N, M));
-        solvers.push_back(make_unique<LinkedListMazeSolver>(N, M));
-        solvers.push_back(make_unique<STLMazeSolver>(N, M));
-
-        for (auto& solver : solvers) {
-            try {
-                solver->setMaze(maze);
+// Блочное умножение с транспонированием 
+void blocked_transposed_multiply(const Complex* A, const Complex* B, Complex* C, int blockSize) {
+    Complex* BT = new Complex[SIZE * SIZE];
+    transpose_matrix(B, BT);
+    
+    for (int ii = 0; ii < SIZE; ii += blockSize) {
+        for (int jj = 0; jj < SIZE; jj += blockSize) {
+            for (int kk = 0; kk < SIZE; kk += blockSize) {
+                const int i_end = min(ii + blockSize, SIZE);
+                const int j_end = min(jj + blockSize, SIZE);
+                const int k_end = min(kk + blockSize, SIZE);
                 
-                auto start_time = high_resolution_clock::now();
-                bool result = solver->solve(start, end);
-                auto duration = duration_cast<microseconds>(high_resolution_clock::now() - start_time);
-                
-                cout << solver->getName() << ": " << duration.count() << " μs, "
-                     << (result ? "Path found" : "No path") << endl;
-            } catch (const exception& e) {
-                cerr << solver->getName() << " error: " << e.what() << endl;
+                for (int i = ii; i < i_end; ++i) {
+                    for (int j = jj; j < j_end; ++j) {
+                        Complex sum(0.0, 0.0);
+                        for (int k = kk; k < k_end; ++k) {
+                            sum += A[i * SIZE + k] * BT[j * SIZE + k];
+                        }
+                        C[i * SIZE + j] += sum;
+                    }
+                }
             }
         }
     }
-};
+    
+    delete[] BT;
+}
 
 int main() {
-    try {
-        int N, M;
-        cout << "Enter maze dimensions (N M): ";
-        cin >> N >> M;
+    Complex* A = new Complex[SIZE * SIZE];
+    Complex* B = new Complex[SIZE * SIZE];
+    Complex* C_simple = new Complex[SIZE * SIZE];
+    Complex* C_openblas = new Complex[SIZE * SIZE];
+    Complex* C_blocked = new Complex[SIZE * SIZE];
 
-        if (N <= 0 || M <= 0) {
-            throw invalid_argument("Dimensions must be positive integers");
-        }
+    generate_matrices(A, B);
+    const double flops = 8.0 * SIZE * SIZE * SIZE;
 
-        Benchmark::run(N, M);
+    // Тестирование простого алгоритма
+    fill(C_simple, C_simple + SIZE * SIZE, Complex(0.0, 0.0));
+    auto start = high_resolution_clock::now();
+    simple_matrix_multiply(A, B, C_simple);
+    auto end = high_resolution_clock::now();
+    double simple_time = duration<double>(end - start).count();
+    cout << "Simple multiplication:\n";
+    cout << "  Time: " << simple_time << " s\n";
+    cout << "  Performance: " << (flops / simple_time) * 1e-9 << " GFlops\n\n";
 
-    } catch (const exception& e) {
-        cerr << "Error: " << e.what() << endl;
-        return 1;
+    // Тестирование OpenBLAS
+    fill(C_openblas, C_openblas + SIZE * SIZE, Complex(0.0, 0.0));
+    start = high_resolution_clock::now();
+    openblas_matrix_multiply(A, B, C_openblas);
+    end = high_resolution_clock::now();
+    double openblas_time = duration<double>(end - start).count();
+    cout << "OpenBLAS multiplication:\n";
+    cout << "  Time: " << openblas_time << " s\n";
+    cout << "  Performance: " << (flops /openblas_time) * 1e-9 << " GFlops\n\n";
+
+    if (are_matrices_equal(C_simple, C_openblas)) {
+        cout << "Simple and OpenBLAS results match!\n\n";
+    } else {
+        cout << "WARNING: Simple and OpenBLAS results differ!\n\n";
     }
+
+    // Тестирование блочного алгоритма с транспонированием
+    fill(C_blocked, C_blocked + SIZE * SIZE, Complex(0.0, 0.0));
+    start = high_resolution_clock::now();
+    blocked_transposed_multiply(A, B, C_blocked, BLOCK_SIZE);
+    end = high_resolution_clock::now();
+    double blocked_time = duration<double>(end - start).count();
+    cout << "Blocked transposed multiplication:\n";
+    cout << "  Time: " << blocked_time << " s\n";
+    cout << "  Performance: " << (flops / blocked_time) * 1e-9 << " GFlops\n\n";
+
+    if (are_matrices_equal(C_blocked, C_openblas)) {
+        cout << "Blocked and OpenBLAS results match!\n\n";
+    } else {
+        cout << "WARNING: Blocked and OpenBLAS results differ!\n\n";
+    }
+
+    delete[] A;
+    delete[] B;
+    delete[] C_simple;
+    delete[] C_openblas;
+    delete[] C_blocked;
 
     return 0;
 }
