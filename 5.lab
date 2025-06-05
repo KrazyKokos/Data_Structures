@@ -1,0 +1,83 @@
+//Shabarov Vladimir 090304-RPI-o24
+
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <vector>
+#include <unordered_map>
+#include <algorithm>
+#include <locale>
+#include <codecvt>
+#include <io.h>
+#include <fcntl.h>
+
+using namespace std;
+
+wstring cleanWord(const wstring& word) {
+    wstring result;
+    for (wchar_t c : word) {
+        if (iswalnum(c)) {
+            result += towlower(c);
+        }
+    }
+    return result;
+}
+
+int main() {
+    _setmode(_fileno(stdin), _O_U16TEXT);
+    _setmode(_fileno(stdout), _O_U16TEXT);
+
+    ifstream inputFile("blabla.txt", ios::binary);
+    if (!inputFile) {
+        wcerr << L"Ошибка открытия файла" << endl;
+        return 1;
+    }
+
+    string utf8Content((istreambuf_iterator<char>(inputFile)), istreambuf_iterator<char>());
+
+    wstring_convert<codecvt_utf8<wchar_t>> utf8ToWstringConverter;
+    wstring wideText;
+    try {
+        wideText = utf8ToWstringConverter.from_bytes(utf8Content);
+    } catch (...) {
+        wcerr << L"Ошибка преобразования" << endl;
+        return 1;
+    }
+
+    unordered_map<wstring, int> frequencyMap;
+    wistringstream textStream(wideText);
+    wstring currentWord;
+    while (textStream >> currentWord) {
+        if (wstring cleanedWord = cleanWord(currentWord); !cleanedWord.empty()) {
+            frequencyMap[cleanedWord]++;
+        }
+    }
+
+    wstring searchQuery;
+    do {
+        wcout << L"Введите запрос ( 3 и больше символа:)" << endl;
+        getline(wcin, searchQuery);
+        transform(searchQuery.begin(), searchQuery.end(), searchQuery.begin(), ::towlower);
+        if (searchQuery.length() < 3) {
+            wcout << L"Символов должно быть >=3" << endl;
+        }
+    } while (searchQuery.length() < 3);
+
+    vector<pair<int, wstring>> matchedWords;
+    for (const auto& [w, freq] : frequencyMap) {
+        if (w.find(searchQuery) != wstring::npos) {
+            matchedWords.emplace_back(-freq, w);
+        }
+    }
+
+    sort(matchedWords.begin(), matchedWords.end());
+    if (matchedWords.empty()) {
+        wcout << L"Совпадений нет" << endl;
+    } else {
+        wcout << L"Совпадения:" << endl;
+        for (size_t i = 0; i < min(matchedWords.size(), size_t(20)); ++i) {
+            wcout << matchedWords[i].second << L" (" << -matchedWords[i].first << L")" << endl;
+        }
+    }
+    return 0;
+}
