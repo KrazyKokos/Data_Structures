@@ -1,0 +1,87 @@
+//Shabarov Vladimir 090403-RPI-o24
+
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <unordered_map>
+#include <algorithm>
+#include <io.h>
+#include <fcntl.h>
+#include <locale>
+#include <codecvt>
+
+using namespace std;
+
+string convertUtf16ToUtf8(const u16string& input) {
+    wstring_convert<codecvt_utf8<char16_t>, char16_t> converter;
+    return converter.to_bytes(input);
+}
+
+u16string convertUtf8ToUtf16(const string& input) {
+    wstring_convert<codecvt_utf8<char16_t>, char16_t> converter;
+    return converter.from_bytes(input);
+}
+
+unordered_map<char16_t, int> generateFrequencyMap(const u16string& word) {
+    unordered_map<char16_t, int> frequencyMap;
+    for (char16_t character : word) {
+        frequencyMap[character]++;
+    }
+    return frequencyMap;
+}
+
+bool isTargetConstructible(const unordered_map<char16_t, int>& sourceFreq, const u16string& target) {
+    auto targetFreq = generateFrequencyMap(target);
+    for (const auto& [character, count] : targetFreq) {
+        if (sourceFreq.count(character) == 0 || sourceFreq.at(character) < count) {
+            return false;
+        }
+    }
+    return true;
+}
+
+int main() {
+    setlocale(LC_ALL, "ru");
+    _setmode(_fileno(stdout), _O_U16TEXT);
+    _setmode(_fileno(stdin), _O_U16TEXT);
+
+    u16string fileName = u"russian_nouns.txt";
+    ifstream inputFile(convertUtf16ToUtf8(fileName).c_str());
+
+    if (!inputFile.is_open()) {
+        wcerr << L"Ошибка открытия файла\n";
+        return 1;
+    }
+
+    vector<u16string> words;
+    string line;
+    while (getline(inputFile, line)) {
+        words.push_back(convertUtf8ToUtf16(line));
+    }
+
+    wcout << L"Введите слово для поиска: ";
+    wstring userInput;
+    getline(wcin, userInput);
+    u16string userInputUtf16(userInput.begin(), userInput.end());
+
+    auto sourceFrequency = generateFrequencyMap(userInputUtf16);
+    vector<u16string> foundWords;
+
+    for (const auto& word : words) {
+        if (isTargetConstructible(sourceFrequency, word)) {
+            foundWords.push_back(word);
+        }
+    }
+
+    sort(foundWords.begin(), foundWords.end(), [](const u16string& a, const u16string& b) {
+        return a.size() != b.size() ? a.size() > b.size() : a < b;
+    });
+
+    wcout << L"Найденые слова: " << foundWords.size() << endl;
+    for (const auto& word : foundWords) {
+        wcout << wstring(word.begin(), word.end()) << endl;
+    }
+
+    return 0;
+}
