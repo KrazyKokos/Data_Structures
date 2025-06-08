@@ -77,8 +77,8 @@ public:
             }
         }
 
-        int passages = min(N, M);
-        for (int i = 0; i < passages; ++i) {
+        int entries = min(N, M);
+        for (int i = 0; i < entries; ++i) {
             grid[0][i] = 0;
             grid[N-1][i] = 0;
         }
@@ -120,6 +120,10 @@ public:
     virtual bool solve_b() = 0;
     virtual string implementationName() const = 0;
 
+    void resetGlobalUsed() {
+        global_used.assign(maze.getN(), vector<bool>(maze.getM(), false));
+    }
+
     void performanceTest() {
         cout << implementationName() << " Results:\n";
         
@@ -144,13 +148,6 @@ class ArraySolver : public MazeSolver {
 private:
     static const int MAX_N = 100;
     static const int MAX_M = 100;
-    int array_used[MAX_N][MAX_M];
-
-public:
-    ArraySolver(const Maze& m) : MazeSolver(m) {
-        if (maze.getN() > MAX_N || maze.getM() > MAX_M) 
-            throw runtime_error("Size too large for array implementation");
-    }
 
     bool bfs(const pair<int, int>& start, const pair<int, int>& end, bool mark_used) {
         vector<vector<bool>> visited(maze.getN(), vector<bool>(maze.getM(), false));
@@ -195,22 +192,34 @@ public:
         return false;
     }
 
+public:
+    ArraySolver(const Maze& m) : MazeSolver(m) {
+        if (maze.getN() > MAX_N || maze.getM() > MAX_M) 
+            throw runtime_error("Size too large for array implementation");
+    }
+
     bool solve_a() override {
+        resetGlobalUsed();
         int entries = min(maze.getN(), maze.getM());
         for (int i = 0; i < entries; ++i) {
-            if (maze.getGrid()[0][i] != 0 || maze.getGrid()[maze.getN()-1][i] != 0) return false;
-            if (!bfs({0, i}, {maze.getN()-1, i}, true)) return false;
+            if (maze.getGrid()[0][i] != 0 || maze.getGrid()[maze.getN()-1][i] != 0) 
+                return false;
+            
+            if (!bfs({0, i}, {maze.getN()-1, i}, false))
+                return false;
         }
         return true;
     }
 
     bool solve_b() override {
+        resetGlobalUsed();
         int entries = min(maze.getN(), maze.getM());
         for (int i = 0; i < entries; ++i) {
             if (maze.getGrid()[0][i] != 0) return false;
             bool found = false;
-            for (int j = 0; j < maze.getM(); ++j) {
-                if (maze.getGrid()[maze.getN()-1][j] == 0 && bfs({0, i}, {maze.getN()-1, j}, true)) {
+            for (int j = 0; j < entries; ++j) {
+                if (maze.getGrid()[maze.getN()-1][j] == 0 && 
+                    bfs({0, i}, {maze.getN()-1, j}, false)) {
                     found = true;
                     break;
                 }
@@ -235,9 +244,6 @@ private:
         perf.incrementOperations(5);
         return new Node{x, y, nullptr, nullptr};
     }
-
-public:
-    LinkedListSolver(const Maze& m) : MazeSolver(m) {}
 
     bool bfs(const pair<int, int>& start, const pair<int, int>& end, bool mark_used) {
         vector<vector<bool>> visited(maze.getN(), vector<bool>(maze.getM(), false));
@@ -302,22 +308,31 @@ public:
         return false;
     }
 
+public:
+    LinkedListSolver(const Maze& m) : MazeSolver(m) {}
+
     bool solve_a() override {
+        resetGlobalUsed();
         int entries = min(maze.getN(), maze.getM());
         for (int i = 0; i < entries; ++i) {
-            if (maze.getGrid()[0][i] != 0 || maze.getGrid()[maze.getN()-1][i] != 0) return false;
-            if (!bfs({0, i}, {maze.getN()-1, i}, true)) return false;
+            if (maze.getGrid()[0][i] != 0 || maze.getGrid()[maze.getN()-1][i] != 0) 
+                return false;
+            
+            if (!bfs({0, i}, {maze.getN()-1, i}, false))
+                return false;
         }
         return true;
     }
 
     bool solve_b() override {
+        resetGlobalUsed();
         int entries = min(maze.getN(), maze.getM());
         for (int i = 0; i < entries; ++i) {
             if (maze.getGrid()[0][i] != 0) return false;
             bool found = false;
-            for (int j = 0; j < maze.getM(); ++j) {
-                if (maze.getGrid()[maze.getN()-1][j] == 0 && bfs({0, i}, {maze.getN()-1, j}, true)) {
+            for (int j = 0; j < entries; ++j) {
+                if (maze.getGrid()[maze.getN()-1][j] == 0 && 
+                    bfs({0, i}, {maze.getN()-1, j}, false)) {
                     found = true;
                     break;
                 }
@@ -377,21 +392,27 @@ public:
     }
 
     bool solve_a() override {
+        resetGlobalUsed();
         int entries = min(maze.getN(), maze.getM());
         for (int i = 0; i < entries; ++i) {
-            if (maze.getGrid()[0][i] != 0 || maze.getGrid()[maze.getN()-1][i] != 0) return false;
-            if (!bfs({0, i}, {maze.getN()-1, i}, true)) return false;
+            if (maze.getGrid()[0][i] != 0 || maze.getGrid()[maze.getN()-1][i] != 0) 
+                return false;
+            
+            if (!bfs({0, i}, {maze.getN()-1, i}, false))
+                return false;
         }
         return true;
     }
 
     bool solve_b() override {
+        resetGlobalUsed();
         int entries = min(maze.getN(), maze.getM());
         for (int i = 0; i < entries; ++i) {
             if (maze.getGrid()[0][i] != 0) return false;
             bool found = false;
-            for (int j = 0; j < maze.getM(); ++j) {
-                if (maze.getGrid()[maze.getN()-1][j] == 0 && bfs({0, i}, {maze.getN()-1, j}, true)) {
+            for (int j = 0; j < entries; ++j) {
+                if (maze.getGrid()[maze.getN()-1][j] == 0 && 
+                    bfs({0, i}, {maze.getN()-1, j}, false)) {
                     found = true;
                     break;
                 }
