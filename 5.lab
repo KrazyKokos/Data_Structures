@@ -1,4 +1,4 @@
-//Shabarov Vladimir 090304-RPI-o24
+//Shabarov Vladimir 090403-RPI-o24
 
 #include <iostream>
 #include <fstream>
@@ -24,6 +24,7 @@ wstring cleanWord(const wstring& word) {
 }
 
 int main() {
+     setlocale(LC_ALL, "");
     _setmode(_fileno(stdin), _O_U16TEXT);
     _setmode(_fileno(stdout), _O_U16TEXT);
 
